@@ -1,0 +1,8 @@
+# your config and its backups: never commit them
+.env
+.env.*
+# module state
+.state/
+# keys
+*keypair*.json
+*.key
