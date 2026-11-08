@@ -11,14 +11,16 @@
 # It acts only on the node that votes with the real identity right now,
 # so the same timer can run on both nodes of a failover pair.
 # It signs with the identity keypair only. The withdrawer stays off the server.
+#
+# No warranty: you run it at your own risk. See README.md (Disclaimer) and LICENSE.
 
 set -euo pipefail
 export LC_ALL=C
 
-VAT_VERSION=1.0.0
 SELF_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 # shellcheck source=../lib/common.sh
 . "$SELF_DIR/../lib/common.sh"
+VAT_VERSION=$(volta_version "$SELF_DIR")
 
 TX_FEE=5000   # lamports, one signature
 
@@ -32,6 +34,7 @@ usage: vat.sh [--dry-run] [--version] [--help]
   --dry-run   only log what would be sent (same as VAT_DRY_RUN=1)
 
 config: $ENV_FILE
+No warranty: you run it at your own risk (README.md, Disclaimer).
 EOF
 }
 
@@ -75,15 +78,17 @@ exec 9>"$lock"
 flock -n 9 || { log "another vat run is still going, exit"; exit 0; }
 
 resolve_bins
-[ -n "${VAT_PAYOUT_WALLET:-}" ] \
-  || die "VAT_PAYOUT_WALLET is not set: vat never runs without an explicit payout wallet. Set it in $ENV_FILE"
+# VAT_PAYOUT_WALLET or, if it is empty, another module's payout wallet (with a warning)
+payout_for VAT \
+  || die "no payout wallet: enter VAT_PAYOUT_WALLET in $ENV_FILE (or run install.sh). vat never runs without an explicit payout wallet"
+[ "$PAYOUT_FROM" = VAT_PAYOUT_WALLET ] || log "WARN: VAT_PAYOUT_WALLET is empty, so vat pays out to $PAYOUT_FROM ($PAYOUT)"
 
 # ---- what the validator runs with ----
 detect_vote
 detect_node
 detect_identity
-p=$(payout_problem "$VAT_PAYOUT_WALLET")
-[ -z "$p" ] || die "VAT_PAYOUT_WALLET $VAT_PAYOUT_WALLET: $p"
+p=$(payout_problem "$PAYOUT")
+[ -z "$p" ] || die "$PAYOUT_FROM $PAYOUT: $p"
 detect_ledger
 resolve_agave
 
@@ -100,7 +105,7 @@ vat_for(){ awk -v r="$VAT_RENT" -v v="$VAT_PER_EPOCH" -v e="$1" 'BEGIN{printf "%
 
 idb=$(bal "$ID") || true
 vb=$(bal "$VOTE") || true
-if ! is_uint "$idb" || ! is_uint "$vb"; then die "cannot read balances via $RPC_URL"; fi
+if ! is_uint "$idb" || ! is_uint "$vb"; then die "cannot read balances via $(url_show "$RPC_URL")"; fi
 
 target=$(vat_for "$VAT_RESERVE_EPOCHS")
 low=$(vat_for "$VAT_LOW_EPOCHS")
@@ -110,7 +115,7 @@ min_sweep=$(lamports "$VAT_MIN_SWEEP")
 (( low <= target )) || die "VAT_LOW_EPOCHS is above VAT_RESERVE_EPOCHS"
 (( id_floor <= id_min )) || die "VAT_IDENTITY_FLOOR is above VAT_IDENTITY_MIN"
 
-log "vat $VAT_VERSION dry=$VAT_DRY_RUN | identity ${ID:0:6} $(sol "$idb") (keeps $VAT_IDENTITY_MIN) | vote ${VOTE:0:6} $(sol "$vb") (top-up below $(sol "$low") to $(sol "$target")) | payout ${VAT_PAYOUT_WALLET:0:6}"
+log "vat $VAT_VERSION dry=$VAT_DRY_RUN | identity ${ID:0:6} $(sol "$idb") (keeps $VAT_IDENTITY_MIN) | vote ${VOTE:0:6} $(sol "$vb") (top-up below $(sol "$low") to $(sol "$target")) | payout ${PAYOUT:0:6}"
 
 send(){ # send <lamports> <to> <what>
   local amount out
@@ -148,7 +153,7 @@ fi
 spare=$(( idb - id_min - TX_FEE ))
 if (( spare >= min_sweep )); then
   log "sweep to payout: $(sol "$spare")"
-  send "$spare" "$VAT_PAYOUT_WALLET" "sweep to payout"
+  send "$spare" "$PAYOUT" "sweep to payout"
 else
   if (( spare < 0 )); then spare=0; fi
   log "spare $(sol "$spare") is below VAT_MIN_SWEEP $VAT_MIN_SWEEP, nothing to sweep"

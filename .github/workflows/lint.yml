@@ -12,7 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck install.sh lib/*.sh vat/*.sh
+      - run: shellcheck install.sh lib/*.sh vat/*.sh bamboost/*.sh
+      - run: python3 -m py_compile bamboost/bamboost.py
 
   gitleaks:
     runs-on: ubuntu-latest

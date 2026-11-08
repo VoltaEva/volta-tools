@@ -6,3 +6,5 @@
 # keys
 *keypair*.json
 *.key
+# python bytecode
+__pycache__/
